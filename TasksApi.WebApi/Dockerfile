@@ -7,6 +7,9 @@ EXPOSE 80
 FROM mcr.microsoft.com/dotnet/sdk:6.0 AS build
 WORKDIR /src
 COPY ["TasksApi.WebApi/TasksApi.WebApi.csproj", "TasksApi.WebApi/"]
+COPY ["TasksApi.Application/TasksApi.Application.csproj", "TasksApi.Application/"]
+COPY ["TasksApi.Domain/TasksApi.Domain.csproj", "TasksApi.Domain/"]
+COPY ["TasksApi.Data/TasksApi.Data.csproj", "TasksApi.Data/"]
 RUN dotnet restore "TasksApi.WebApi/TasksApi.WebApi.csproj"
 COPY . .
 WORKDIR "/src/TasksApi.WebApi"
