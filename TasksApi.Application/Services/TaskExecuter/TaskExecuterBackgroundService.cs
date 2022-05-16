@@ -1,9 +1,12 @@
 ﻿using System.Collections.Concurrent;
 using AutoMapper;
+using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
+using Microsoft.Extensions.Logging;
 using TasksApi.Application.Abstract.Data;
 using TasksApi.Application.Entities;
+using TasksApi.Application.Utils;
 using TasksApi.Domain;
 
 namespace TasksApi.Application.Services.TaskExecuter
@@ -13,6 +16,7 @@ namespace TasksApi.Application.Services.TaskExecuter
     {
         private readonly IMapper _mapper;
         private readonly IServiceScopeFactory _scopeFactory;
+        private readonly ILogger<TaskExecuterBackgroundService> _logger;
 
         private readonly ConcurrentQueue<TaskState> _tasksQueue;  // очередь задач на исполнение
 
@@ -26,11 +30,12 @@ namespace TasksApi.Application.Services.TaskExecuter
         /// <summary>
         ///     Ctor
         /// </summary>
-        public TaskExecuterBackgroundService(IMapper mapper, IServiceScopeFactory scopeFactory)
+        public TaskExecuterBackgroundService(IMapper mapper, IServiceScopeFactory scopeFactory, ILogger<TaskExecuterBackgroundService> logger)
         {
             _mapper = mapper ?? throw new ArgumentNullException(nameof(mapper));
             _scopeFactory = scopeFactory ?? throw new ArgumentNullException(nameof(scopeFactory));
-            
+            _logger = logger ?? throw new ArgumentNullException(nameof(logger));
+
             _tasksQueue = new ConcurrentQueue<TaskState>();
 
             _taskExecutingTime = TimeSpan.FromMinutes(2);
@@ -42,39 +47,45 @@ namespace TasksApi.Application.Services.TaskExecuter
         /// </summary>
         protected override async Task ExecuteAsync(CancellationToken stoppingToken)
         {
-            try
+            // Подгружаем задачи из базы во время инициализации сервиса
+            await InitialQueueFromDb();
+
+            while (true)
             {
-                // Подгружаем задачи из базы во время инициализации сервиса
-                await InitialQueueFromDb();
+                stoppingToken.ThrowIfCancellationRequested();
 
-                while (true)
+                if (_tasksQueue.TryPeek(out var peekTask) && CheckTheNeedForExecution(peekTask.Timestamp))
                 {
-                    stoppingToken.ThrowIfCancellationRequested();
+                    using var scope = _scopeFactory.CreateScope();
+                    var taskStatesRepository = scope.ServiceProvider.GetRequiredService<ITaskStatesRepository>();
 
-                    if (_tasksQueue.TryPeek(out var peekTask) && CheckTheNeedForExecution(peekTask.Timestamp))
+                    do
                     {
-                        using var scope = _scopeFactory.CreateScope();
-                        var taskStatesRepository = scope.ServiceProvider.GetRequiredService<ITaskStatesRepository>();
+                        if (!_tasksQueue.TryDequeue(out var task)) break;
 
-                        do
+                        try
                         {
-                            if (!_tasksQueue.TryDequeue(out var task)) break;
-
                             task.StateStatus = TaskStateStatus.Finished;
 
                             await taskStatesRepository.UpdateTaskStateAsync(task);
                         }
-                        while (_tasksQueue.TryPeek(out peekTask) && CheckTheNeedForExecution(peekTask.Timestamp));
-                    }
+                        catch (Exception e)
+                        {
+                            _logger.LogError(e, "Возникла ошибка в обработке задачи." +
+                                                $" Id: {task.Id}. Status: {task.StateStatus.ToStringCached()}. " +
+                                                "Задача возвращена в очередь.");
 
-                    await Task.Delay(1000, stoppingToken);
+                            task.StateStatus = TaskStateStatus.Running;
+
+                            _tasksQueue.Enqueue(task); 
+
+                            //todo возможно отслеживание числа ретраев, конфигурирование ретраев через конфиг и тд
+                        }
+                    }
+                    while (_tasksQueue.TryPeek(out peekTask) && CheckTheNeedForExecution(peekTask.Timestamp));
                 }
-            }
-            catch (Exception e)
-            {
-                /*
-                 *  логика обработки краша бэкграунд сервиса 
-                 */
+
+                await Task.Delay(1000, stoppingToken);
             }
         }
 
