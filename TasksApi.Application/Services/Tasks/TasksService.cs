@@ -27,6 +27,10 @@ namespace TasksApi.Application.Services.Tasks
         /// <inheritdoc />
         public async Task<Guid> CreateAndRunNewTask()
         {
+            //todo если выполнять досконально по пайплайну из тз, тогда задача будет отправляться не сразу в репозиторий, а на очередь для сохранения
+            //     тогда ответ 202 с айди задачи будет получен до присвоения задаче статуса running
+            //     но, так как сущность не велика, а обработка её сохранения не занимает столь много времени, решил отправлять её сразу в репозиторий
+
             var createdTask = TaskState.CreateDefault();
 
             await _taskStatesRepository.AddTaskStateAsync(createdTask);

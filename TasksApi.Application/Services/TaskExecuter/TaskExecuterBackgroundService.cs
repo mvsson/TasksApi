@@ -1,4 +1,5 @@
-﻿using AutoMapper;
+﻿using System.Collections.Concurrent;
+using AutoMapper;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
 using TasksApi.Application.Abstract.Data;
@@ -13,7 +14,7 @@ namespace TasksApi.Application.Services.TaskExecuter
         private readonly IMapper _mapper;
         private readonly IServiceScopeFactory _scopeFactory;
 
-        private readonly Queue<TaskState> _tasksQueue;  // очередь задач на исполнение
+        private readonly ConcurrentQueue<TaskState> _tasksQueue;  // очередь задач на исполнение
         
         private readonly TimeSpan _taskExecutingTime;   // время исполнения задачи //todo вынос в конфиг, например
 
@@ -26,7 +27,7 @@ namespace TasksApi.Application.Services.TaskExecuter
             _mapper = mapper ?? throw new ArgumentNullException(nameof(mapper));
             _scopeFactory = scopeFactory ?? throw new ArgumentNullException(nameof(scopeFactory));
 
-            _tasksQueue = new Queue<TaskState>();
+            _tasksQueue = new ConcurrentQueue<TaskState>();
 
             _taskExecutingTime = TimeSpan.FromMinutes(2);
         }
@@ -53,7 +54,7 @@ namespace TasksApi.Application.Services.TaskExecuter
 
                         do
                         {
-                            var task = _tasksQueue.Dequeue();
+                            if (!_tasksQueue.TryDequeue(out var task)) break;
 
                             task.StateStatus = TaskStateStatus.Finished;
 
