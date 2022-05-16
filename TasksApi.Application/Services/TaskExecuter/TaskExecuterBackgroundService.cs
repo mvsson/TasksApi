@@ -15,8 +15,12 @@ namespace TasksApi.Application.Services.TaskExecuter
         private readonly IServiceScopeFactory _scopeFactory;
 
         private readonly ConcurrentQueue<TaskState> _tasksQueue;  // очередь задач на исполнение
-        
+
         private readonly TimeSpan _taskExecutingTime;   // время исполнения задачи //todo вынос в конфиг, например
+
+        private readonly SemaphoreSlim _semaphoreSlim = new(1, 1);
+
+        private bool _isQueueFromDbInitialized;
 
 
         /// <summary>
@@ -26,7 +30,7 @@ namespace TasksApi.Application.Services.TaskExecuter
         {
             _mapper = mapper ?? throw new ArgumentNullException(nameof(mapper));
             _scopeFactory = scopeFactory ?? throw new ArgumentNullException(nameof(scopeFactory));
-
+            
             _tasksQueue = new ConcurrentQueue<TaskState>();
 
             _taskExecutingTime = TimeSpan.FromMinutes(2);
@@ -41,7 +45,7 @@ namespace TasksApi.Application.Services.TaskExecuter
             try
             {
                 // Подгружаем задачи из базы во время инициализации сервиса
-                await LoadTasksFromDb();
+                await InitialQueueFromDb();
 
                 while (true)
                 {
@@ -75,16 +79,22 @@ namespace TasksApi.Application.Services.TaskExecuter
         }
 
         /// <inheritdoc />
-        public async Task EnqueueToExecute(TaskState task, ITaskStatesRepository? taskStatesRepository = null)
+        public async Task EnqueueToExecute(TaskState task)
         {
             if (task == null) throw new ArgumentNullException(nameof(task));
 
-            if (taskStatesRepository == null)
+            // ожидаем, пока очередь заполнится данными из бд при инициализации,
+            // только потом начинаем добавлять новые таски, чтобы соблюсти очередность по времени
+
+            if (!_isQueueFromDbInitialized) 
             {
-                using var scope = _scopeFactory.CreateScope();
-                taskStatesRepository = scope.ServiceProvider.GetRequiredService<ITaskStatesRepository>();
+                await _semaphoreSlim.WaitAsync();
+                _semaphoreSlim.Release();
             }
 
+            using var scope = _scopeFactory.CreateScope();
+            var taskStatesRepository = scope.ServiceProvider.GetRequiredService<ITaskStatesRepository>();
+            
             if (task.StateStatus != TaskStateStatus.Created)
             {
                 throw new ArgumentException(
@@ -94,10 +104,12 @@ namespace TasksApi.Application.Services.TaskExecuter
 
             _tasksQueue.Enqueue(task);
 
+
             task.StateStatus = TaskStateStatus.Running;
 
             await taskStatesRepository.UpdateTaskStateAsync(task);
         }
+
         
         /// <summary>
         ///     Проверка необходимости перевода задачи в статус finished
@@ -115,14 +127,16 @@ namespace TasksApi.Application.Services.TaskExecuter
         /// <summary>
         ///     Загрузка задач из бд при запуске
         /// </summary>
-        private async Task LoadTasksFromDb()
+        private async Task InitialQueueFromDb()
         {
+            await _semaphoreSlim.WaitAsync();
+
             using var scope = _scopeFactory.CreateScope();
             var taskStatesRepository = scope.ServiceProvider.GetRequiredService<ITaskStatesRepository>();
 
             var tasks = await taskStatesRepository.GetAllTaskStatesAsync(task => task.StateStatus < TaskStateStatus.Finished && 
-                                                                                  task.StateStatus > TaskStateStatus.None,
-                                                                          task => task.Timestamp);
+                                                                                 task.StateStatus > TaskStateStatus.None,
+                                                                         task => task.Timestamp);
             
             foreach (var taskEntity in tasks)
             {
@@ -131,13 +145,46 @@ namespace TasksApi.Application.Services.TaskExecuter
                 switch (taskEntity.StateStatus)
                 {
                     case TaskStateStatus.Created:
-                        await EnqueueToExecute(task, taskStatesRepository);
+                        await EnqueueCreatedInternal(task, taskStatesRepository);
                         break;
                     case TaskStateStatus.Running:
-                        _tasksQueue.Enqueue(task);
+                        await EnqueueRunningInternal(task);
                         break;
                 }
             }
+            
+            _isQueueFromDbInitialized = true;
+            _semaphoreSlim.Release();
+        }
+
+        /// <summary>
+        ///     Внутренняя обработка постановки в очередь задачи со статусом Created
+        /// </summary>
+        private async Task EnqueueCreatedInternal(TaskState task, ITaskStatesRepository taskStatesRepository)
+        {
+            if (task == null) throw new ArgumentNullException(nameof(task));
+            if (taskStatesRepository == null) throw new ArgumentNullException(nameof(taskStatesRepository));
+
+            if (task.StateStatus != TaskStateStatus.Created) throw new InvalidOperationException();
+
+            _tasksQueue.Enqueue(task);
+
+            task.StateStatus = TaskStateStatus.Running;
+
+            await taskStatesRepository.UpdateTaskStateAsync(task);
+        }
+
+        /// <summary>
+        ///     Внутренняя обработка постановки в очередь задачи со статусом Running
+        /// </summary>
+        private Task EnqueueRunningInternal(TaskState task)
+        {
+            if (task == null) throw new ArgumentNullException(nameof(task));
+            if (task.StateStatus != TaskStateStatus.Running) throw new InvalidOperationException();
+
+            _tasksQueue.Enqueue(task);
+
+            return Task.CompletedTask;
         }
     }
 }

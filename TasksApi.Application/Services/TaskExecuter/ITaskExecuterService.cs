@@ -12,6 +12,6 @@ namespace TasksApi.Application.Services.TaskExecuter
         /// <summary>
         ///     Записать задачу в очередь на исполнение
         /// </summary>
-        Task EnqueueToExecute(TaskState task, ITaskStatesRepository? taskStatesRepository);
+        Task EnqueueToExecute(TaskState task);
     }
 }

@@ -35,7 +35,7 @@ namespace TasksApi.Application.Services.Tasks
 
             await _taskStatesRepository.AddTaskStateAsync(createdTask);
 
-            await _taskExecuterService.EnqueueToExecute(createdTask, _taskStatesRepository);
+            await _taskExecuterService.EnqueueToExecute(createdTask);
 
             return createdTask.Id;
         }
