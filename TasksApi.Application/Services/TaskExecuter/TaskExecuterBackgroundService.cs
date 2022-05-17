@@ -1,6 +1,5 @@
 ﻿using System.Collections.Concurrent;
 using AutoMapper;
-using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
@@ -24,7 +23,7 @@ namespace TasksApi.Application.Services.TaskExecuter
 
         private readonly SemaphoreSlim _semaphoreSlim = new(1, 1);
 
-        private bool _isQueueFromDbInitialized;
+        private readonly InitializerSwitch _initializerSwitch; // класс, инкапсулирующий флаг проинициализированности сервиса
 
 
         /// <summary>
@@ -37,6 +36,8 @@ namespace TasksApi.Application.Services.TaskExecuter
             _logger = logger ?? throw new ArgumentNullException(nameof(logger));
 
             _tasksQueue = new ConcurrentQueue<TaskState>();
+
+            _initializerSwitch = new InitializerSwitch();
 
             _taskExecutingTime = TimeSpan.FromMinutes(2);
         }
@@ -97,7 +98,7 @@ namespace TasksApi.Application.Services.TaskExecuter
             // ожидаем, пока очередь заполнится данными из бд при инициализации,
             // только потом начинаем добавлять новые таски, чтобы соблюсти очередность по времени
 
-            if (!_isQueueFromDbInitialized) 
+            if (!_initializerSwitch.IsInitialized) 
             {
                 await _semaphoreSlim.WaitAsync();
                 _semaphoreSlim.Release();
@@ -164,7 +165,7 @@ namespace TasksApi.Application.Services.TaskExecuter
                 }
             }
             
-            _isQueueFromDbInitialized = true;
+            _initializerSwitch.IsInitialized = true;
             _semaphoreSlim.Release();
         }
 
@@ -196,6 +197,29 @@ namespace TasksApi.Application.Services.TaskExecuter
             _tasksQueue.Enqueue(task);
 
             return Task.CompletedTask;
+        }
+
+
+        /// <summary>
+        ///     Инкапсуляция флага инициализации сервиса (позволяет инициализировать только 1 раз
+        /// </summary>
+        private class InitializerSwitch
+        {
+            private bool _isInitialized;
+
+            /// <summary>
+            ///     Проинициализирован ли сервис
+            /// </summary>
+            public bool IsInitialized
+            {
+                get => _isInitialized;
+                set
+                {
+                    if (_isInitialized || value == false) return;
+
+                    _isInitialized = value;
+                }
+            }
         }
     }
 }
