@@ -10,9 +10,9 @@ namespace TasksApi.Application.Abstract.Data
     public interface ITaskStatesRepository
     {
         /// <summary>
-        ///     Добавить задачу
+        ///     Добавить задачу и вернуть её айди
         /// </summary>
-        Task AddTaskStateAsync(TaskState taskState);
+        Task<Guid> AddTaskStateAsync(TaskState taskState);
 
         /// <summary>
         ///     Получить первую задачу подходящую под выражение

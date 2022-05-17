@@ -34,7 +34,6 @@
         {
             return new TaskState()
             {
-                Id = Guid.NewGuid(),
                 StateStatus = TaskStateStatus.Created,
                 Timestamp = DateTime.UtcNow,
             };

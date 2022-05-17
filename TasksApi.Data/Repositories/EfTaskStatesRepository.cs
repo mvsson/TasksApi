@@ -24,13 +24,15 @@ namespace TasksApi.Data.Repositories
         }
 
         /// <inheritdoc />
-        public async Task AddTaskStateAsync(TaskState taskState)
+        public async Task<Guid> AddTaskStateAsync(TaskState taskState)
         {
             var taskStateEntity = _mapper.Map<TaskState, TaskStateEntity>(taskState);
 
             await _dbContext.TaskStates.AddAsync(taskStateEntity);
 
             await _dbContext.SaveChangesAsync();
+
+            return taskStateEntity.Id;
         }
 
         /// <inheritdoc />

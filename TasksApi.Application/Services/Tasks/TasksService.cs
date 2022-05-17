@@ -1,4 +1,5 @@
 ﻿using AutoMapper;
+using Microsoft.EntityFrameworkCore;
 using TasksApi.Application.Abstract.Data;
 using TasksApi.Application.Common.Exceptions;
 using TasksApi.Application.Entities;
@@ -27,13 +28,16 @@ namespace TasksApi.Application.Services.Tasks
         /// <inheritdoc />
         public async Task<Guid> CreateAndRunNewTask()
         {
-            //todo если выполнять досконально по пайплайну из тз, тогда задача будет отправляться не сразу в репозиторий, а на очередь для сохранения
+            //todo если выполнять досконально по пайплайну из тз, тогда задача будет отправляться не сразу в репозиторий, а на очередь для сохранения, а идентификатор записи будет создаваться основываясь на кеше
             //     тогда ответ 202 с айди задачи будет получен до присвоения задаче статуса running
             //     но, так как сущность не велика, а обработка её сохранения не занимает столь много времени, решил отправлять её сразу в репозиторий
 
             var createdTask = TaskState.CreateDefault();
+            createdTask.Id = Guid.Empty;
+            
+            var taskId = await _taskStatesRepository.AddTaskStateAsync(createdTask);
 
-            await _taskStatesRepository.AddTaskStateAsync(createdTask);
+            createdTask.Id = taskId;
 
             await _taskExecuterService.EnqueueToExecute(createdTask);
 

@@ -201,7 +201,7 @@ namespace TasksApi.Application.Services.TaskExecuter
 
 
         /// <summary>
-        ///     Инкапсуляция флага инициализации сервиса (позволяет инициализировать только 1 раз
+        ///     Инкапсуляция флага инициализации сервиса (позволяет инициализировать только 1 раз)
         /// </summary>
         private class InitializerSwitch
         {
